@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Noah's Rescue Platformer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Fredoka One', cursive;
+            touch-action: none;
+            overflow: hidden;
+            background-color: #3498db;
+        }
+        .game-wrapper {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        #game-canvas {
+            background-color: #87CEEB;
+            border-radius: 10px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            max-width: 100%;
+            max-height: 85%;
+            aspect-ratio: 16 / 9;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            width: 100%;
+            max-width: 800px;
+            padding: 15px;
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        .control-btn {
+            width: 65px;
+            height: 65px;
+            background-color: rgba(255, 255, 255, 0.5);
+            border: 3px solid white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 30px;
+            color: white;
+            user-select: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .control-btn:active {
+            background-color: rgba(255, 255, 255, 0.8);
+            transform: scale(0.95);
+        }
+        .move-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body class="bg-blue-400">
+
+    <div class="game-wrapper">
+        <div id="message-box" class="message-box"></div>
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="move-controls">
+            <div id="left-btn" class="control-btn">◀</div>
+            <div>
+                <div id="down-btn" class="control-btn" style="width: 50px; height: 50px; font-size: 24px;">▼</div>
+            </div>
+            <div id="right-btn" class="control-btn">▶</div>
+        </div>
+        <div id="jump-btn" class="control-btn">▲</div>
+    </div>
+    
+    <audio id="jump-sound" src="https://actions.google.com/sounds/v1/sports/pool_ball_pocket.mp3" preload="auto"></audio>
+    <audio id="key-sound" src="https://actions.google.com/sounds/v1/household/keys_and_keychain_put_on_table.mp3" preload="auto"></audio>
+    <audio id="success-sound" src="https://actions.google.com/sounds/v1/cartoon/magic_chime.mp3" preload="auto"></audio>
+
+    <script>
+    // --- Game Setup ---
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const messageBox = document.getElementById('message-box');
+    const jumpSound = document.getElementById('jump-sound');
+    const keySound = document.getElementById('key-sound');
+    const successSound = document.getElementById('success-sound');
+
+    let canvasWidth, canvasHeight;
+    const keys = { left: false, right: false, up: false, down: false };
+
+    // --- Player ---
+    const player = {
+        x: 100, y: 400, width: 40, height: 50,
+        speed: 4.5, velocityX: 0, velocityY: 0,
+        jumping: true, gravity: 0.5, jumpPower: -13,
+        hasKey: false, direction: 'right'
+    };
+
+    // --- Game Objects ---
+    let platforms = [];
+    let clouds = [];
+    let keyObject = {};
+    let gateObject = {};
+    let animalObject = {};
+    let currentLevel = 0;
+    let levelWon = false;
+
+    // --- LEVEL DATA ---
+    const levels = [
+        { // Level 1: Monkey Rescue
+            animal: { name: 'Monkey', char: '🐵' },
+            message: "Rescue the Monkey! Get the key to open the cage.",
+            playerStart: { x: 100, y: 600 },
+            platforms: [
+                { x: 0, y: 680, width: 400, height: 40, type: 'solid' },
+                { x: 800, y: 680, width: 480, height: 40, type: 'solid' },
+                { x: 550, y: 600, width: 150, height: 20, type: 'oneway' },
+                { x: 300, y: 500, width: 150, height: 20, type: 'oneway' },
+                { x: 50, y: 400, width: 150, height: 20, type: 'oneway' },
+                { x: 1000, y: 520, width: 280, height: 20, type: 'solid' }, 
+                { x: 1260, y: 680, width: 20, height: -160, type: 'solid' },
+            ],
+            key: { x: 100, y: 360, width: 40, height: 20 },
+            gate: { x: 1000, y: 540, width: 20, height: 140 },
+            animalPos: { x: 1120, y: 630, width: 50, height: 50 }
+        },
+        { // Level 2: Lion Rescue
+            animal: { name: 'Lion', char: '🦁' },
+            message: "Rescue the Lion! Ride the moving platform to get the key.",
+            playerStart: { x: 100, y: 600 },
+            platforms: [
+                { x: 0, y: 680, width: 250, height: 40, type: 'solid' },
+                { x: 750, y: 680, width: 530, height: 40, type: 'solid' },
+                { x: 300, y: 550, width: 120, height: 20, type: 'oneway', move: { axis: 'x', start: 300, range: 250, speed: 1.5 } },
+                { x: 800, y: 450, width: 150, height: 20, type: 'oneway' },
+                { x: 1050, y: 350, width: 150, height: 20, type: 'oneway' },
+                { x: 1000, y: 520, width: 280, height: 20, type: 'solid' }, 
+                { x: 1260, y: 680, width: 20, height: -160, type: 'solid' },
+            ],
+            key: { x: 1100, y: 310, width: 40, height: 20 },
+            gate: { x: 1000, y: 540, width: 20, height: 140 },
+            animalPos: { x: 1120, y: 630, width: 50, height: 50 }
+        }
+    ];
+
+    function loadLevel(levelIndex) {
+        if (levelIndex >= levels.length) {
+            showMessage("You rescued all the animals! YOU WIN!", 10000);
+            return;
+        }
+        
+        const levelData = levels[levelIndex];
+        levelWon = false;
+        
+        player.x = levelData.playerStart.x;
+        player.y = levelData.playerStart.y;
+        player.velocityX = 0;
+        player.velocityY = 0;
+        player.hasKey = false;
+        player.direction = 'right';
+        player.jumping = true;
+
+        platforms = levelData.platforms.map(p => ({...p}));
+        keyObject = { ...levelData.key, collected: false };
+        gateObject = { ...levelData.gate, open: false };
+        animalObject = { ...levelData.animalPos, ...levelData.animal };
+        
+        clouds = [];
+        for (let i = 0; i < 5; i++) {
+            clouds.push({
+                x: Math.random() * canvasWidth,
+                y: Math.random() * (canvasHeight / 2),
+                radius: Math.random() * 20 + 20,
+                speed: Math.random() * 0.2 + 0.1
+            });
+        }
+        
+        showMessage(levelData.message, 4000);
+    }
+
+    // --- Controls ---
+    const leftBtn = document.getElementById('left-btn');
+    const rightBtn = document.getElementById('right-btn');
+    const jumpBtn = document.getElementById('jump-btn');
+    const downBtn = document.getElementById('down-btn');
+
+    const setupControls = () => {
+        leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.left = true; });
+        leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.left = false; });
+        leftBtn.addEventListener('mousedown', () => keys.left = true);
+        leftBtn.addEventListener('mouseup', () => keys.left = false);
+        rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.right = true; });
+        rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.right = false; });
+        rightBtn.addEventListener('mousedown', () => keys.right = true);
+        rightBtn.addEventListener('mouseup', () => keys.right = false);
+        jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!player.jumping) keys.up = true; });
+        jumpBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.up = false; });
+        jumpBtn.addEventListener('mousedown', () => { if (!player.jumping) keys.up = true; });
+        jumpBtn.addEventListener('mouseup', () => keys.up = false);
+        downBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.down = true; });
+        downBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.down = false; });
+        downBtn.addEventListener('mousedown', () => keys.down = true);
+        downBtn.addEventListener('mouseup', () => keys.down = false);
+        
+        window.addEventListener('keydown', (e) => {
+            if(e.key === 'ArrowLeft') keys.left = true;
+            if(e.key === 'ArrowRight') keys.right = true;
+            if(e.key === 'ArrowDown') keys.down = true;
+            if((e.key === 'ArrowUp' || e.key === ' ') && !player.jumping) keys.up = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if(e.key === 'ArrowLeft') keys.left = false;
+            if(e.key === 'ArrowRight') keys.right = false;
+            if(e.key === 'ArrowDown') keys.down = false;
+            if(e.key === 'ArrowUp' || e.key === ' ') keys.up = false;
+        });
+    };
+    
+    // --- Game Loop ---
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function update() {
+        if (levelWon) return;
+
+        platforms.forEach(p => {
+            if (p.move) updateMovingPlatform(p);
+        });
+
+        if (keys.left) {
+            player.velocityX = -player.speed;
+            player.direction = 'left';
+        } else if (keys.right) {
+            player.velocityX = player.speed;
+            player.direction = 'right';
+        } else {
+            player.velocityX = 0;
+        }
+
+        if (keys.up) {
+            player.velocityY = player.jumpPower;
+            player.jumping = true;
+            jumpSound.play();
+            keys.up = false; 
+        }
+        
+        player.x += player.velocityX;
+        player.y += player.velocityY;
+        player.velocityY += player.gravity;
+
+        platforms.forEach(platform => {
+            handlePlatformCollision(player, platform);
+        });
+        
+        if (!gateObject.open) {
+            // ** NEW GATE LOGIC **
+            if (isColliding(player, gateObject)) {
+                if (player.hasKey) {
+                    gateObject.open = true;
+                    player.hasKey = false;
+                    successSound.play();
+                    showMessage("You opened the gate!", 2000);
+                } else {
+                    // If no key, treat gate as a solid wall
+                    handlePlatformCollision(player, { ...gateObject, type: 'solid' });
+                }
+            }
+        }
+
+        if (!keyObject.collected && isColliding(player, keyObject)) {
+            keyObject.collected = true;
+            player.hasKey = true;
+            keySound.play();
+            showMessage("You found the key!", 2000);
+        }
+        
+        if (isColliding(player, animalObject)) {
+            if (gateObject.open) {
+                levelWon = true;
+                successSound.play();
+                showMessage(`You rescued the ${animalObject.name}! 🎉`, 3000);
+                setTimeout(() => {
+                    currentLevel++;
+                    loadLevel(currentLevel);
+                }, 3000);
+            }
+        }
+
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.width > canvasWidth) player.x = canvasWidth - player.width;
+        if (player.y > canvasHeight) loadLevel(currentLevel);
+        
+        clouds.forEach(cloud => {
+            cloud.x += cloud.speed;
+            if (cloud.x > canvasWidth + cloud.radius * 2) cloud.x = -cloud.radius * 2;
+        });
+    }
+
+    function updateMovingPlatform(p) {
+        if (p.move.axis === 'x') {
+            p.x += p.move.speed;
+            if (p.x > p.move.start + p.move.range || p.x < p.move.start) {
+                p.move.speed *= -1;
+            }
+        }
+    }
+
+    function isColliding(shapeA, shapeB) {
+        return shapeA.x < shapeB.x + shapeB.width &&
+               shapeA.x + shapeA.width > shapeB.x &&
+               shapeA.y < shapeB.y + shapeB.height &&
+               shapeA.y + shapeA.height > shapeB.y;
+    }
+
+    function handlePlatformCollision(player, platform) {
+        const p_mid_x = player.x + player.width / 2;
+        const p_mid_y = player.y + player.height / 2;
+        const plat_mid_x = platform.x + platform.width / 2;
+        const plat_mid_y = platform.y + platform.height / 2;
+
+        const dx = p_mid_x - plat_mid_x;
+        const dy = p_mid_y - plat_mid_y;
+
+        const combined_half_widths = player.width / 2 + platform.width / 2;
+        const combined_half_heights = player.height / 2 + platform.height / 2;
+
+        if (Math.abs(dx) < combined_half_widths && Math.abs(dy) < combined_half_heights) {
+            
+            if (platform.type === 'oneway' && player.velocityY < 0) return;
+            if (platform.type === 'oneway' && keys.down) return;
+
+            const overlap_x = combined_half_widths - Math.abs(dx);
+            const overlap_y = combined_half_heights - Math.abs(dy);
+
+            if (overlap_y < overlap_x) {
+                if (dy > 0 && player.velocityY < 0) { // Head bump
+                    if (platform.type !== 'oneway') {
+                        player.y += overlap_y;
+                        player.velocityY = 0;
+                    }
+                } else if (dy < 0 && player.velocityY >= 0) { // Landing
+                    player.y -= overlap_y;
+                    player.velocityY = 0;
+                    player.jumping = false;
+                    if (platform.move) {
+                        player.x += platform.move.speed;
+                    }
+                }
+            } else {
+                 if (platform.type !== 'oneway') {
+                    if (dx > 0) { player.x += overlap_x; } 
+                    else { player.x -= overlap_x; }
+                 }
+            }
+        }
+    }
+
+    // --- Drawing Functions ---
+    function draw() {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        ctx.fillStyle = '#87CEEB';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        clouds.forEach(cloud => drawCloud(cloud.x, cloud.y, cloud.radius));
+        platforms.forEach(drawPlatform);
+        if (!keyObject.collected) drawKey(keyObject);
+        if (!gateObject.open) drawGate(gateObject);
+        drawAnimal(animalObject);
+        drawPlayer();
+    }
+    
+    function drawPlayer() {
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        if (player.hasKey) { drawKey({ x: 5, y: -30, width: 30, height: 15 }); }
+        if (player.direction === 'left') {
+            ctx.scale(-1, 1);
+            ctx.translate(-player.width, 0);
+        }
+        ctx.fillStyle = '#d35400';
+        ctx.fillRect(0, 15, player.width, player.height - 15);
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillRect(5, 0, player.width - 10, 20);
+        ctx.fillStyle = 'black';
+        ctx.fillRect(25, 5, 5, 5);
+        ctx.restore();
+    }
+    
+    function drawPlatform(platform) {
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+        ctx.fillStyle = '#27ae60';
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height * 0.3);
+    }
+    
+    function drawKey(key) {
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillRect(key.x, key.y, key.width * 0.6, key.height);
+        ctx.beginPath();
+        ctx.arc(key.x + key.width * 0.8, key.y + key.height / 2, key.height, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawGate(gate) {
+        ctx.fillStyle = '#7f8c8d';
+        ctx.fillRect(gate.x, gate.y, gate.width, gate.height);
+        ctx.fillStyle = '#95a5a6';
+        ctx.fillRect(gate.x + 5, gate.y, gate.width - 10, gate.height);
+    }
+
+    function drawAnimal(animal) {
+        const char = animal.char || '❓';
+        ctx.font = `${animal.width}px sans-serif`;
+        ctx.fillText(char, animal.x, animal.y + animal.height);
+    }
+    
+    function drawCloud(x, y, radius) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.arc(x + radius * 0.8, y + radius * 0.5, radius * 0.8, 0, Math.PI * 2);
+        ctx.arc(x - radius * 0.8, y + radius * 0.5, radius * 0.8, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function showMessage(text, duration) {
+        messageBox.textContent = text;
+        messageBox.style.opacity = '1';
+        setTimeout(() => {
+            messageBox.style.opacity = '0';
+        }, duration);
+    }
+
+    // --- Resize and Initialize ---
+    function resizeCanvas() {
+        const gameWrapper = document.querySelector('.game-wrapper');
+        const wrapperRect = gameWrapper.getBoundingClientRect();
+        
+        const aspectRatio = 16 / 9;
+        let newWidth = wrapperRect.width;
+        let newHeight = newWidth / aspectRatio;
+
+        if (newHeight > wrapperRect.height * 0.85) {
+            newHeight = wrapperRect.height * 0.85;
+            newWidth = newHeight * aspectRatio;
+        }
+
+        canvas.width = 1280;
+        canvas.height = 720;
+        canvas.style.width = `${newWidth}px`;
+        canvas.style.height = `${newHeight}px`;
+
+        canvasWidth = canvas.width;
+        canvasHeight = canvas.height;
+        
+        loadLevel(currentLevel);
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    window.onload = () => {
+        setupControls();
+        resizeCanvas();
+        gameLoop();
+    };
+    </script>
+</body>
+</html>
